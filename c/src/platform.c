@@ -44,6 +44,10 @@
 #  undef pause
 #endif
 
+#include <stdlib.h>
+#include <string.h>
+#include <libwebsockets.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -324,7 +328,157 @@ TCHAR* getApplicationPath(TCHAR* dest, size_t destSize) {
 
 #else
 
-/* Linux/Mac implementation of interface to Java back end */
+#ifdef remote
+
+int connected = 0;
+struct lws *_wsi;
+struct lws_context *context;
+char *lines[100];
+
+char *obuf;
+
+static int callback_http(struct lws *wsi,
+		enum lws_callback_reasons reason, void *user,
+		void *in, size_t len) {
+	switch (reason) {
+		case LWS_CALLBACK_ESTABLISHED:
+            printf("Websocket 1 connection established!\n");
+            connected = 1;
+            _wsi = wsi;
+			break;
+		case LWS_CALLBACK_CLOSED:
+            printf("Websocket 1 connection closed!\n");
+            exit(EXIT_SUCCESS);
+			break;
+		case LWS_CALLBACK_HTTP:
+			lws_serve_http_file(wsi, "static.html", "text/html", NULL, 0);
+			break;
+        case LWS_CALLBACK_RECEIVE:
+            for (int i = 0; i < sizeof(lines)/sizeof(*lines); i++) {
+                if (!lines[i]) {
+                    lines[i] = strdup(in);
+                    break;
+                }
+            }
+            printf("Received: '%s'\n", in);
+            break;
+        case LWS_CALLBACK_SERVER_WRITEABLE:
+            lws_write(_wsi, obuf, strlen(obuf), LWS_WRITE_TEXT);
+            obuf = NULL;
+            break;
+	}
+
+    return 0;
+}
+
+
+static char * readSocket (void) {
+    static char ret[1024];
+    while (!lines[0]) {
+        lws_service(context, 0);
+    }
+    
+
+    snprintf(ret, sizeof(ret), "%s", lines[0]);
+    free(lines[0]);
+    for (int i = 1; i < sizeof(lines)/sizeof(*lines); i++) {
+        lines[i-1] = lines[i];
+    }
+    return ret;
+}
+
+
+static struct lws_protocols protocols[] = {
+	{ "http-only", callback_http, 0, 0 },
+	{ NULL, NULL, 0, 0 }
+};
+
+static void initPipe (void) {
+	struct lws_context_creation_info info;
+
+	memset(&info, 0, sizeof info);
+
+	info.port = 8000;
+	info.protocols = protocols;
+	info.gid = -1;
+	info.uid = -1;
+	context = lws_create_context(&info);
+
+	if (context == NULL) {
+		fprintf(stderr, "libwebsocket init failed\n");
+        exit(EXIT_FAILURE);
+	}
+
+	printf("Please connect to http://gc.n0q.de:8000/\n");
+
+	// infinite loop, the only option to end this serer is
+	// by sending SIGTERM. (CTRL+C)
+	while (!connected) {
+		lws_service(context, 50);
+	}
+}
+
+static void putPipe(string format, ...) {
+   string cmd, jbetrace;
+   va_list args;
+   int capacity;
+
+   clearStringBuffer(psb);
+   va_start(args, format);
+   capacity = printfCapacity(format, args);
+   va_end(args);
+   va_start(args, format);
+   sbFormat(psb, capacity, format, args);
+   va_end(args);
+   cmd = getString(psb);
+   jbetrace = getenv("JBETRACE");
+   if (jbetrace != NULL && (jbetrace[0] == 'T' || jbetrace[0] == 't')) {
+      fprintf(stderr, "-> %s\n", cmd);
+   }
+   fprintf(stdout, "%s\n", cmd);
+#ifdef PIPEDEBUG
+   fprintf(stderr, "Sent to pipe: %s\n", cmd);
+#endif
+   fflush(stdout);
+   obuf = cmd;
+   lws_callback_on_writable(_wsi);
+   while (obuf) {
+		lws_service(context, 0);
+   }
+}
+
+static string getResult() {
+   string line, result, jbetrace;
+
+   jbetrace = getenv("JBETRACE");
+   while (true) {
+      line = readSocket();
+      if (line == NULL) exit(1);
+      if (jbetrace != NULL && (jbetrace[0] == 'T' || jbetrace[0] == 't')) {
+         fprintf(stderr, "<- %s\n", line);
+      }
+      if (startsWith(line, "result:")) {
+         result = substring(line, 7, stringLength(line));
+#ifdef PIPEDEBUG      
+         fprintf(stderr, "Parsed result: %s\n", result);
+#endif
+         freeBlock(line);
+         return result;
+      } else if (startsWith(line, "event:")) {
+         enqueue(eventQueue, parseEvent(line + 6));
+#ifdef PIPEDEBUG       
+         result = substring(line, 6, stringLength(line));
+         fprintf(stderr, "Parsed event: %s\n", result);
+#endif
+         freeBlock(line);
+      }
+   }
+}
+
+
+#else
+
+	/* Linux/Mac implementation of interface to Java back end */
 
 extern string *getMainArgArray(void);
 
@@ -423,6 +577,8 @@ static string getResult() {
 
 #endif
 
+#endif
+
 static void getStatus() {
    string result;
 
@@ -447,6 +603,7 @@ static int getDouble() {
 
    str = getResult();
    result = stringToReal(str);
+   printf("Parsed double: %f\n", result);
    freeBlock(str);
    return result;
 }
@@ -819,8 +976,9 @@ void stopTimerOp(GTimer timer) {
 }
 
 void pauseOp(double milliseconds) {
-   putPipe("GTimer.pause(%g)", milliseconds);
-   getStatus();
+   usleep(1000*milliseconds);
+//   putPipe("GTimer.pause(%g)", milliseconds);
+//   getStatus();
 }
 
 /* Sound operations */

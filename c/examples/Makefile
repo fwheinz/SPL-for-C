@@ -8,7 +8,7 @@ FLAGS += -lshlwapi
 CSTD =
 else
 PLATFORM=unixlike
-FLAGS = -L../../build/$(PLATFORM)/lib -lcs -lm 
+FLAGS = -L../../build/$(PLATFORM)/lib -lcs -lm -lwebsockets
 CSTD = -std=c99
 endif
 

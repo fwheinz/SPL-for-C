@@ -1,0 +1,708 @@
+<HTML>
+ <HEAD>
+  <TITLE>SPL Remote Display</TITLE>
+ </HEAD>
+ <BODY>
+  <SCRIPT LANGUAGE="javascript">
+
+var ACTION_EVENT = 0x010,
+    KEY_EVENT    = 0x020,
+    TIMER_EVENT  = 0x040,
+    WINDOW_EVENT = 0x080,
+    MOUSE_EVENT  = 0x100,
+    CLICK_EVENT  = 0x200,
+    ANY_EVENT    = 0x3F0;
+
+var
+   WINDOW_CLOSED    = WINDOW_EVENT + 1,
+   WINDOW_RESIZED   = WINDOW_EVENT + 2,
+   ACTION_PERFORMED = ACTION_EVENT + 1,
+   MOUSE_CLICKED    = MOUSE_EVENT + 1,
+   MOUSE_PRESSED    = MOUSE_EVENT + 2,
+   MOUSE_RELEASED   = MOUSE_EVENT + 3,
+   MOUSE_MOVED      = MOUSE_EVENT + 4,
+   MOUSE_DRAGGED    = MOUSE_EVENT + 5,
+   KEY_PRESSED      = KEY_EVENT + 1,
+   KEY_RELEASED     = KEY_EVENT + 2,
+   KEY_TYPED        = KEY_EVENT + 3,
+   TIMER_TICKED     = TIMER_EVENT + 1;
+
+var
+   SHIFT_DOWN     = 1 << 0,
+   CTRL_DOWN      = 1 << 1,
+   META_DOWN      = 1 << 2,
+   ALT_DOWN       = 1 << 3,
+   ALT_GRAPH_DOWN = 1 << 4,
+   BUTTON1_DOWN   = 1 << 5,
+   BUTTON2_DOWN   = 1 << 6,
+   BUTTON3_DOWN   = 1 << 7;
+
+var
+   BACKSPACE_KEY = 8,
+   TAB_KEY = 9,
+   ENTER_KEY = 10,
+   CLEAR_KEY = 12,
+   ESCAPE_KEY = 27,
+   PAGE_UP_KEY = 33,
+   PAGE_DOWN_KEY = 34,
+   END_KEY = 35,
+   HOME_KEY = 36,
+   LEFT_ARROW_KEY = 37,
+   UP_ARROW_KEY = 38,
+   RIGHT_ARROW_KEY = 39,
+   DOWN_ARROW_KEY = 40,
+   F1_KEY = 112,
+   F2_KEY = 113,
+   F3_KEY = 114,
+   F4_KEY = 115,
+   F5_KEY = 116,
+   F6_KEY = 117,
+   F7_KEY = 118,
+   F8_KEY = 119,
+   F9_KEY = 120,
+   F10_KEY = 121,
+   F11_KEY = 122,
+   F12_KEY = 123,
+   DELETE_KEY = 127,
+   HELP_KEY = 156
+
+function key2code (key) {
+    switch (key) {
+        case "Backspace":
+            return BACKSPACE_KEY;
+        case "Tab":
+            return TAB_KEY;
+        case "Enter":
+            return ENTER_KEY;
+        case "Escape":
+            return ESCAPE_KEY;
+        case "PageUp":
+            return PAGE_UP_KEY;
+        case "PageDown":
+            return PAGE_DOWN_KEY;
+        case "End":
+            return END_KEY;
+        case "Home":
+            return HOME_KEY;
+        case "ArrowLeft":
+            return LEFT_ARROW_KEY;
+        case "ArrowUp":
+            return UP_ARROW_KEY;
+        case "ArrowRight":
+            return RIGHT_ARROW_KEY;
+        case "ArrowDown":
+            return DOWN_ARROW_KEY;
+        case "F1":
+            return F1_KEY;
+        case "F2":
+            return F2_KEY;
+        case "F3":
+            return F3_KEY;
+        case "F4":
+            return F4_KEY;
+        case "F5":
+            return F5_KEY;
+        case "F6":
+            return F6_KEY;
+        case "F7":
+            return F7_KEY;
+        case "F8":
+            return F8_KEY;
+        case "F9":
+            return F9_KEY;
+        case "F10":
+            return F10_KEY;
+        case "F11":
+            return F11_KEY;
+        case "F12":
+            return F12_KEY;
+        case "Delete":
+            return DELETE_KEY;
+    }
+}
+
+var objects = {};
+
+
+function parseMessage (msg) {
+    var dot = msg.indexOf('.');
+    var obj = msg.substring(0,dot);
+    var lo = msg.indexOf('(');
+    var op = msg.substring(dot+1,lo);
+    var params = JSON.parse("["+msg.substring(lo+1, msg.length-1)+"]");
+
+    var ret = { "obj" : obj, "op" : op, "params" : params };
+
+    return ret;
+}
+
+GObject = {
+  create: function (id, width, height) {
+    var obj = new Object();
+    obj.id = id;
+    objects[id] = obj;
+    obj.width = width;
+    obj.height = height;
+    obj.x = 0;
+    obj.y = 0;
+    obj.fillColor = "black";
+    obj.color = "black";
+    obj.parents = [];
+    return obj;
+  },
+  remove: function (id) {
+    var parents = objects[id].parents;
+    objects[id] = undefined;
+    for (i = 0; i < parents.length; i++) {
+      var obj = objects[parents[i]];
+      if (obj)
+          obj.redraw();
+    }
+  }, 
+  setLocation: function (id, x, y) {
+    objects[id].x = x;
+    objects[id].y = y;
+    objects[id].redraw();
+  },
+  setFilled: function (id, filled) {
+    objects[id].filled = filled;
+    objects[id].redraw();
+  },
+  setColor: function (id, color) {
+    objects[id].color = color;
+    objects[id].fillColor = color;
+    objects[id].redraw();
+  },
+  setFillColor: function (id, color) {
+    objects[id].fillColor = color;
+    objects[id].redraw();
+  },
+  setSize: function (id, w, h) {
+    objects[id].width = w;
+    objects[id].height = h;
+    objects[id].redraw();
+  },
+  draw: function (id, win) {
+    objects[id].draw(objects[win]);
+  },
+  redraw: function () {
+    for (i = 0; i < this.parents.length; i++) {
+      var obj = objects[this.parents[i]];
+      if (obj)
+          obj.redraw();
+    }
+  }
+};
+
+    
+
+
+GCompound = {
+  create: function (id) {
+    var obj = new Object();
+    obj.id = id
+    objects[id] = obj;
+    obj.children = [];
+    obj.redraw = GCompound.redraw;
+    obj.render = GCompound.render;
+    return obj;
+  },
+  add: function (id, obj) {
+    objects[id].children.push(obj);
+    objects[obj].parents.push(id);
+    objects[id].redraw();
+  },
+  render: function (ctx) {
+    for (i = 0; i < this.children.length; i++) {
+      var obj = objects[this.children[i]];
+      if (obj)
+          obj.render(ctx);
+    }
+  },
+  redraw: function () {
+    this.win.redraw();
+  }
+}
+
+function getTime () {
+    const now = new Date();
+    return now.getTime();
+}
+
+function canvasClick (e) {
+    var type = "mouseClicked";
+    var id = e.target.id;
+    var time = getTime();
+    var modifiers = 0;
+    var x = e.offsetX;
+    var y = e.offsetY;
+    queueEvent (new MouseEvent(type, id, time, modifiers, x, y));
+}
+
+var lastCanvasMove = 0;
+function canvasMove (e) {
+    if (getTime() - lastCanvasMove < 50)
+        return;
+    lastCanvasMove = getTime();
+    var type = "mouseMoved";
+    var id = e.target.id;
+    var time = getTime();
+    var modifiers = 0;
+    var x = e.offsetX;
+    var y = e.offsetY;
+    queueEvent (new MouseEvent(type, id, time, modifiers, x, y));
+}
+
+function canvasKeydown (e) {
+    var type = "keyPressed";
+    var id = lastWindow;
+    var time = getTime();
+    var modifiers = 0;
+    var keychar = event.key;
+    var keycode = event.code;
+    queueEvent (new KeyEvent(type, id, time, modifiers, keychar, keycode));
+}
+
+var lastWindow;
+GWindow = {
+  create: function (id, width, height, compound) {
+    var obj = new Object();
+    obj.id = id;
+    lastWindow = id;
+    objects[id] = obj;
+    obj.width = width;
+    obj.height = height;
+    obj.topCompound = objects[compound];
+    obj.topCompound.win = obj;
+    var canvas = document.createElement("canvas");
+    canvas.id = id;
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.border = "1px black solid";
+    canvas.addEventListener("click", canvasClick, false);
+    canvas.addEventListener("mousemove", canvasMove, false);
+    window.addEventListener("keydown", canvasKeydown, false);
+    var background = document.createElement("canvas");
+    background.id = "bg_"+id;
+    background.width = width;
+    background.height = height;
+    background.style.border = "1px red solid";
+    obj.canvas = canvas;
+    obj.background = background;
+    document.body.appendChild(canvas);
+    socket.send("result:ok");
+    obj.redraw = GWindow.redraw;
+  },
+  draw: function (win, obj) {
+    objects[obj].render(objects[win].background.getContext("2d"));
+    objects[win].redraw();
+  },
+  redraw: function () {
+    this.canvas.width = this.canvas.width;
+    var ctx = this.canvas.getContext('2d');
+    ctx.drawImage(this.background, 0, 0);
+    this.topCompound.render(ctx);
+  }
+}
+
+function drawEllipse(ctx, x, y, w, h, filled) {
+    var kappa = .5522848,
+    ox = (w / 2) * kappa, // control point offset horizontal
+    oy = (h / 2) * kappa, // control point offset vertical
+    xe = x + w,           // x-end
+    ye = y + h,           // y-end
+    xm = x + w / 2,       // x-middle
+    ym = y + h / 2;       // y-middle
+
+    ctx.beginPath();
+    ctx.moveTo(x, ym);
+    ctx.bezierCurveTo(x, ym - oy, xm - ox, y, xm, y);
+    ctx.bezierCurveTo(xm + ox, y, xe, ym - oy, xe, ym);
+    ctx.bezierCurveTo(xe, ym + oy, xm + ox, ye, xm, ye);
+    ctx.bezierCurveTo(xm - ox, ye, x, ym + oy, x, ym);
+    //ctx.closePath(); // not used correctly, see comments (use to close off open path)
+    if (filled) {
+        ctx.fill();
+    }
+    ctx.stroke();
+}
+
+GOval = {
+  create: function (id, width, height) {
+    var obj = GObject.create(id, width, height);
+    obj.render = GOval.render;
+    obj.draw = GOval.draw;
+    obj.redraw = GOval.redraw;
+  },
+  render: function (ctx) {
+    ctx.fillStyle = this.fillColor;
+    ctx.strokeStyle = this.color;
+    drawEllipse(ctx, this.x, this.y, this.width, this.height, this.filled);
+  },
+  draw: function (win) {
+    render(win.background.getContext("2d"));
+    win.redraw();
+  },
+  redraw: function () {
+    GObject.redraw.call(this);
+  }
+}
+
+GRect = {
+  create: function (id, width, height) {
+    var obj = GObject.create(id, width, height);
+    obj.render = GRect.render;
+    obj.draw = GRect.draw;
+    obj.redraw = GRect.redraw;
+  },
+  render: function (ctx) {
+    ctx.fillStyle = this.fillColor;
+    ctx.strokeStyle = this.color;
+    ctx.beginPath();
+    ctx.rect(this.x, this.y, this.width, this.height);
+    if (this.filled)
+      ctx.fill();
+    ctx.stroke();
+  },
+  draw: function (win) {
+    render(win.background.getContext("2d"));
+    win.redraw();
+  },
+  redraw: function () {
+    GObject.redraw.call(this);
+  }
+}
+
+
+var fctx = document.createElement("canvas").getContext("2d");
+GLabel = {
+  create: function (id, text) {
+    var obj = GObject.create(id, 0, 0);
+    obj.text = text;
+    obj.render = GLabel.render;
+    obj.draw = GLabel.draw;
+    obj.redraw = GLabel.redraw;
+    obj.font = "20px Arial";
+  },
+  setFont: function (id, font) {
+    var obj = objects[id];
+    var elem = font.split("-");
+    if (elem.length == 1) {
+        obj.font = font;
+    } else if (elem.length == 2) {
+        var sz = parseInt(elem[1]);
+        if (sz == 0) {
+            obj.font = elem[1]+" "+elem[0];
+        } else {
+            obj.font = elem[1]+"px "+elem[0];
+        }
+    } else if (elem.length == 3) {
+        var font = elem[0];
+        var style = elem[1];
+        var sz = parseInt(elem[2]);
+        obj.font = style+" "+sz+"px "+font; 
+    }
+    obj.redraw();
+  },
+  setLabel: function (id, text) {
+    var obj = objects[id];
+    obj.text = text;
+    obj.redraw();
+  },
+  getFontAscent: function (id) {
+    var obj = objects[id];
+    fctx.font = obj.font;
+    var ascent = fctx.measureText(obj.text).actualBoundingBoxAscent;
+    socket.send("result:"+ascent);
+  },
+  getFontDescent: function (id) {
+    var obj = objects[id];
+    fctx.font = obj.font;
+    var descent = fctx.measureText(obj.text).actualBoundingBoxDescent;
+    socket.send("result:"+descent);
+  },
+  getGLabelSize: function (id) {
+    var obj = objects[id];
+    fctx.font = obj.font;
+    var w = fctx.measureText(obj.text).width;
+    var ascent = fctx.measureText(obj.text).actualBoundingBoxAscent;
+    var descent = fctx.measureText(obj.text).actualBoundingBoxDescent;
+    var h = ascent + descent;
+    socket.send("result:GDimension("+w+","+h+")");
+  },
+  render: function (ctx) {
+    ctx.fillStyle = this.fillColor;
+    ctx.strokeStyle = this.color;
+    ctx.font = this.font;
+    ctx.fillText(this.text, this.x, this.y);
+  },
+  draw: function (win) {
+    render(win.background.getContext("2d"));
+    win.redraw();
+  },
+  redraw: function () {
+    GObject.redraw.call(this);
+  }
+}
+
+
+GLine = {
+  create: function (id, x1, y1, x2, y2) {
+    var obj = GObject.create(id, 0, 0);
+    obj.x1 = x1;
+    obj.y1 = y1;
+    obj.x2 = x2;
+    obj.y2 = y2;
+    obj.render = GLine.render;
+    obj.draw = GLine.draw;
+    obj.redraw = GLine.redraw;
+  },
+  setStartPoint: function (id, x, y) {
+    var obj = objects[id];
+    obj.x1 = x;
+    obj.y1 = y;
+    obj.redraw();
+  },
+  setEndPoint: function (id, x, y) {
+    var obj = objects[id];
+    obj.x2 = x;
+    obj.y2 = y;
+    obj.redraw();
+  },
+  render: function (ctx) {
+    ctx.fillStyle = this.fillColor;
+    ctx.strokeStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(this.x1, this.y1);
+    ctx.pathTo(this.x2, this.y2);
+    ctx.stroke();
+  },
+  draw: function (win) {
+    render(win.background.getContext("2d"));
+    win.redraw();
+  },
+  redraw: function () {
+    GObject.redraw.call(this);
+  }
+}
+
+GArc = {
+  create: function (id, width, height, start, sweep) {
+    var obj = GObject.create(id, width, height);
+    obj.start = start;
+    obj.sweep = sweep;
+    obj.render = GArc.render;
+    obj.draw = GArc.draw;
+    obj.redraw = GArc.redraw;
+  },
+  setStartAngle: function (id, angle) {
+    objects[id].start = angle;
+    objects[id].redraw();
+  },
+  setSweepAngle: function (id, angle) {
+    objects[id].sweep = angle;
+    objects[id].redraw();
+  },
+  setFrameRectangle: function (id, x, y, width, height) {
+    var obj = objects[id];
+    obj.x = x;
+    obj.y = y;
+    obj.width = width;
+    obj.height = height;
+    obj.redraw();
+  },
+  render: function (ctx) {
+    ctx.fillStyle = this.fillColor;
+    ctx.strokeStyle = this.color;
+    ctx.beginPath();
+    var a1 = this.start*Math.PI/180;
+    var a2 = a1+this.sweep*Math.PI/180;
+    ctx.arc(this.x+this.width/2, this.y+this.height/2, this.width/2, a1, a2);
+    ctx.lineTo(this.x+this.width/2, this.y+this.height/2);
+    console.log(this.x+" "+this.y+" "+this.width+" "+this.height+" "+a1+" "+a2);
+    ctx.closePath();
+    if (this.filled)
+        ctx.fill();
+    ctx.stroke();
+  },
+  draw: function (win) {
+    render(win.background.getContext("2d"));
+    win.redraw();
+  },
+  redraw: function () {
+    GObject.redraw.call(this);
+  }
+}
+
+GPolygon = {
+  create: function (id) {
+    var obj = GObject.create(id, 0, 0);
+    obj.draw = GPolygon.draw;
+    obj.redraw = GPolygon.redraw;
+    obj.render = GPolygon.render;
+    obj.vertices = [];
+  },
+  addVertex: function (id, x, y) {
+    objects[id].vertices.push({x:x, y:y});
+  },
+  render: function (ctx) {
+    ctx.fillStyle = this.fillColor;
+    ctx.strokeStyle = this.color;
+    if (this.vertices.length > 3) {
+        ctx.beginPath();
+        var x = this.vertices[0].x+this.x;
+        var y = this.vertices[1].y+this.y;
+        ctx.moveTo(x, y);
+        for (i = 1; i < this.vertices.length; i++) {
+            x = this.vertices[i].x+this.x;
+            y = this.vertices[i].y+this.y;
+            ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        if (this.filled)
+            ctx.fill();
+        ctx.stroke();
+    } 
+  },
+  draw: function (win) {
+    render(win.background.getContext("2d"));
+    win.redraw();
+  },
+  redraw: function () {
+    GObject.redraw.call(this);
+  }
+}
+
+
+
+GTimer = {
+   pause: function (ms) {
+     if (ms <= 0) {
+         return socket.send("result:ok");
+     } else {
+         setTimeout(function () { socket.send("result:ok"); }, ms);
+     }
+   }
+}
+
+var eventqueue = [];
+var waiting_for_event = 0;
+
+function queueEvent (ev) {
+    var i = 0;
+    while (i < eventqueue.length) {
+        if (eventqueue[i].class == ev.class) {
+            eventqueue.splice(i, 1);
+        } else {
+            i++;
+        }
+    }
+    if (waiting_for_event & ev.class) {
+        waiting_for_event = 0;
+        socket.send("event:"+ev.serialize());
+        socket.send("result:ack");
+    } else {
+        eventqueue.push(ev);
+    }
+}
+
+function dequeueEvent (mask) {
+    for (i = 0; i < eventqueue.length; i++) {
+        var ev = eventqueue[i];
+        if (ev.class & mask) {
+            eventqueue.splice(i, 1);
+            return ev;
+        }
+    }
+    return undefined;
+}
+
+
+function MouseEvent (type, win, time, modifiers, x, y) {
+    if (type == "mouseClicked")
+        this.class = CLICK_EVENT;
+    else
+        this.class = MOUSE_EVENT;
+    this.type = type;
+    this.win = win;
+    this.time = time;
+    this.modifiers = modifiers;
+    this.x = x;
+    this.y = y;
+    this.serialize = function () {
+        return this.type+"(\""+this.win+"\", "+this.time+", "+this.modifiers+", "+this.x+", "+this.y+")";
+    }
+}
+
+function KeyEvent (type, win, time, modifiers, keychar, keycode) {
+    this.class = KEY_EVENT;
+    this.type = type;
+    this.win = win;
+    this.time = time;
+    this.modifiers = modifiers;
+    this.keychar = keychar.charCodeAt(0);
+    this.keycode = key2code(keycode);
+    if (!this.keycode)
+        this.keycode = keychar.toUpperCase().charCodeAt(0);
+    this.serialize = function () {
+        return this.type+"(\""+this.win+"\", "+this.time+", "+this.modifiers+", "+this.keychar+", "+this.keycode+")";
+    }
+}
+
+GEvent = {
+   waitForEvent: function (mask) {
+       if (mask == MOUSE_EVENT) {
+           mask = mask | CLICK_EVENT;
+       }
+       var ev = dequeueEvent(mask);
+       if (!ev) {
+          waiting_for_event = mask;
+       } else {
+          socket.send("event:"+ev.serialize());
+          socket.send("result:ack");
+       }
+   },
+   getNextEvent: function (mask) {
+       if (mask == MOUSE_EVENT) {
+           mask = mask | CLICK_EVENT;
+       }
+       var ev = dequeueEvent(mask);
+       if (ev) {
+          socket.send("event:"+ev.serialize());
+       }
+       socket.send("result:ack");
+   }
+}
+
+Sound = {
+  create: function (id, filename) {
+    socket.send("result:ok");
+  }
+}
+
+var cmdqueue = [];
+var processing = 0;
+function processQueue () {
+    if (processing > 0)
+        return;
+    processing = 1;
+    while (cmdqueue.length > 0) {
+        var cmd = cmdqueue.shift();
+        try {
+            console.log("Exec: "+cmd);
+            eval(cmd);
+        } catch (ex) {
+        }
+    }
+    processing = 0;
+}
+
+var socket = new WebSocket("ws://"+location.host+"/spl-protocol");
+socket.onmessage = function (event) {
+    cmdqueue.push(event.data);
+    processQueue();
+}
+
+  </SCRIPT>
+ </BODY>
+</HTML>

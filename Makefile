@@ -12,8 +12,9 @@ PLATFORM=unixlike
 endif
 
 # Additional compiler flags, add '-DPIPEDEBUG' for a debug build showing piped commands
-CFLAGS=-std=gnu11
-LDLIBS=
+CFLAGS=-std=gnu11 -Dremote -DPIPEDEBUG
+#CFLAGS=-std=gnu11 -DPIPEDEBUG
+LDLIBS= -lwebsockets
 
 ifeq ($(OS),Windows_NT)
 LDLIBS += -lshlwapi

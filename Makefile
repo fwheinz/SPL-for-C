@@ -12,7 +12,7 @@ PLATFORM=unixlike
 endif
 
 # Additional compiler flags, add '-DPIPEDEBUG' for a debug build showing piped commands
-CFLAGS=-std=gnu11 -Dremote -DPIPEDEBUG
+CFLAGS=-std=gnu11 -Dremote -DPIPEDEBUG -ggdb
 #CFLAGS=-std=gnu11 -DPIPEDEBUG
 LDLIBS= -lwebsockets
 
@@ -84,7 +84,7 @@ PROJECT = StarterProject \
 # Entry to bring the package up to date
 #    The "make all" entry should be the first real entry
 
-all: $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS) $(JAR) examples
+all: $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS) examples
 
 
 # ***************************************************************
@@ -247,7 +247,7 @@ build/$(PLATFORM)/obj/platform.o: c/src/platform.c c/include/cmpfn.h c/include/c
                 c/include/iterator.h c/include/platform.h \
                 c/include/private/tokenpatch.h c/include/queue.h \
                 c/include/simpio.h c/include/sound.h c/include/strbuf.h \
-                c/include/strlib.h c/include/tokenscanner.h c/include/vector.h
+                c/include/strlib.h c/include/tokenscanner.h c/include/vector.h c/include/static_html.h
 	@echo "Build platform.o"
 	@gcc $(CFLAGS) -D$(PLATFORM) -c -o build/$(PLATFORM)/obj/platform.o -Ic/include c/src/platform.c
 
@@ -343,6 +343,8 @@ build/$(PLATFORM)/obj/vector.o: c/src/vector.c c/include/cmpfn.h c/include/cslib
 	@echo "Build vector.o"
 	@gcc $(CFLAGS) -D$(PLATFORM) -c -o build/$(PLATFORM)/obj/vector.o -Ic/include c/src/vector.c
 
+c/include/static_html.h: static.html
+	xxd -i static.html c/include/static_html.h
 
 # ***************************************************************
 # Entry to reconstruct the library archive
@@ -388,19 +390,18 @@ stanford/spl/JavaBackEnd.class: java/src/stanford/spl/*.java
 # ***************************************************************
 # install
 
-install: build/$(PLATFORM)/lib/libcs.a $(JAR)
+install: build/$(PLATFORM)/lib/libcs.a
 	rm -rf /usr/local/include/spl
 	cp -r build/$(PLATFORM)/include /usr/local/include/spl
 	chmod -R a+rX /usr/local/include/spl
 	cp build/$(PLATFORM)/lib/{libcs.a,spl.jar} /usr/local/lib/
 	chmod -R a+r /usr/local/lib/{libcs.a,spl.jar}
 
-examples: build/$(PLATFORM)/lib/libcs.a $(JAR)
+examples: build/$(PLATFORM)/lib/libcs.a
 	@echo "Build Examples"
-	@cp build/$(PLATFORM)/lib/spl.jar c/examples/
 	@make -C c/examples
 
-starterprojects: clean $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS) $(JAR)
+starterprojects: clean $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS)
 	@echo "Build StarterProjects"
 	@rm -rf StarterProjects
 	@mkdir StarterProjects
@@ -491,7 +492,7 @@ codeblocks_macos: clean $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS) $(JAR)
 	@cp ide/src/HelloGraphics.c StarterProject
 	@echo "Check the StarterProject folder"
 
-makefile: clean $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS) $(JAR)
+makefile: clean $(BUILD) $(OBJECTS) $(LIBRARIES) $(TESTS)
 	@echo "Build StarterProject for Makefile Project";
 	@rm -rf StarterProject
 	@cp -r ide/makefile StarterProject

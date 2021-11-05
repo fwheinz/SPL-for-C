@@ -822,8 +822,10 @@ GObject getGObjectCompound(GCompound compound, double x, double y) {
    contents = compound->u.compoundRep.contents;
    n = sizeVector(contents);
    for (i = n - 1; i >= 0; i--) {
-      gobj = getVector(contents, i);
-      if (containsGObject(gobj, x, y)) return gobj;
+       gobj = getVector(contents, i);
+       if (containsGObject(gobj, x, y)) {
+           return gobj;
+       }
    }
    return NULL;
 }

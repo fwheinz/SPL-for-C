@@ -151,12 +151,18 @@ GObject = {
     return obj;
   },
   remove: function (id) {
+    console.log("Removing "+id);
+    console.log(objects);
+    if (!objects[id]) return;
+    console.log(objects[id]);
     var parents = objects[id].parents;
     objects[id] = undefined;
     for (i = 0; i < parents.length; i++) {
       var obj = objects[parents[i]];
-      if (obj)
+      if (obj) {
+          console.log("Redrawing "+id);
           obj.redraw();
+      }
     }
   }, 
   setLocation: function (id, x, y) {
@@ -274,6 +280,7 @@ GWindow = {
     obj.height = height;
     obj.topCompound = objects[compound];
     obj.topCompound.win = obj;
+    obj.redraw = GWindow.redraw;
     var canvas = document.createElement("canvas");
     canvas.id = id;
     canvas.width = width;
@@ -290,8 +297,8 @@ GWindow = {
     obj.canvas = canvas;
     obj.background = background;
     document.body.appendChild(canvas);
+    console.log("Sending result:ok");
     socket.send("result:ok");
-    obj.redraw = GWindow.redraw;
   },
   draw: function (win, obj) {
     objects[obj].render(objects[win].background.getContext("2d"));
@@ -674,9 +681,12 @@ GEvent = {
    }
 }
 
+// XXX Todo: Implement me
 Sound = {
   create: function (id, filename) {
     socket.send("result:ok");
+  },
+  play: function (id) {
   }
 }
 
@@ -689,14 +699,15 @@ function processQueue () {
     while (cmdqueue.length > 0) {
         var cmd = cmdqueue.shift();
         try {
-            console.log("Exec: "+cmd);
             eval(cmd);
         } catch (ex) {
+            console.log(ex);
         }
     }
     processing = 0;
 }
 
+console.log("Connecting to ws://"+location.host+"/spl-protocol");
 var socket = new WebSocket("ws://"+location.host+"/spl-protocol");
 socket.onmessage = function (event) {
     cmdqueue.push(event.data);

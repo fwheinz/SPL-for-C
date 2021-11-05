@@ -41,12 +41,17 @@
 #  include <errno.h>
 #  include <pwd.h>
 #  include <unistd.h>
+#  include <sys/socket.h>
+#  include <arpa/inet.h>
+#  ifdef remote
+#    include <libwebsockets.h>
+#    include <static_html.h>
+#  endif
 #  undef pause
 #endif
 
 #include <stdlib.h>
 #include <string.h>
-#include <libwebsockets.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -176,14 +181,14 @@ static void startJavaBackendProcess() {
       
    if (getApplicationPath(szPath, MAX_PATH) == NULL)
    {
-	  error(TEXT("getApplicationPath"));
-	  return;
+      error(TEXT("getApplicationPath"));
+      return;
    }
    
    if (!SetCurrentDirectory(szPath))
    {
-   	  error(TEXT("SetCurrentDirectory"));
-	  return;
+      error(TEXT("SetCurrentDirectory"));
+      return;
    }
    
    ZeroMemory( szCmdline, MAX_PATH*2 );
@@ -193,7 +198,7 @@ static void startJavaBackendProcess() {
 #ifdef PIPEDEBUG   
    strncat(szCmdline, TEXT(" -debug"), 7);
 #endif
-	
+    
    // Set up members of the PROCESS_INFORMATION structure. 
    ZeroMemory( &piProcInfo, sizeof(PROCESS_INFORMATION) );
  
@@ -224,9 +229,9 @@ static void startJavaBackendProcess() {
    else 
    {
    #ifdef PIPEDEBUG
-   	  fprintf(stderr, "%s: %s\n", TEXT("CreateProcess successful"), szCmdline);
+      fprintf(stderr, "%s: %s\n", TEXT("CreateProcess successful"), szCmdline);
    #endif
-	   
+       
       // Close handles to the child process and its primary thread.
       // Some applications might keep these handles to monitor the status
       // of the child process, for example. 
@@ -276,18 +281,18 @@ static string getResult() {
       char message[200];
       readMessageFromBuffer(message, maxMessageLength);
 
-      if (startsWith(message, "result:")) {		 
+      if (startsWith(message, "result:")) {      
          result = substring(message, 7, stringLength(message));
-#ifdef PIPEDEBUG		 
+#ifdef PIPEDEBUG         
          fprintf(stderr, "Parsed result: %s\n", result);
 #endif
          return result;
       } else if (startsWith(message, "event:")) {
-#ifdef PIPEDEBUG		  
+#ifdef PIPEDEBUG          
          fprintf(stderr, "Event contains newLine char at: %d\n", findChar('\n', message, 0));
          result = substring(message, 6, stringLength(message));
          fprintf(stderr, "Parsed event: %s\n", result);
-#endif		 
+#endif       
          enqueue(eventQueue, parseEvent(message + 6));
       }
    }
@@ -313,9 +318,9 @@ void readMessageFromBuffer(char* message, int maxLength) {
          if( !bSuccess || dwRead == 0 ) break; 
       }
       message[bufferPosition-1] = '\0';
-#ifdef PIPEDEBUG	  
+#ifdef PIPEDEBUG      
       fprintf(stderr, "Read message from buffer: %s\n", message);
-#endif	  
+#endif    
 }
 
 TCHAR* getApplicationPath(TCHAR* dest, size_t destSize) {
@@ -338,35 +343,46 @@ char *lines[100];
 char *obuf;
 
 static int callback_http(struct lws *wsi,
-		enum lws_callback_reasons reason, void *user,
-		void *in, size_t len) {
-	switch (reason) {
-		case LWS_CALLBACK_ESTABLISHED:
-            printf("Websocket 1 connection established!\n");
+        enum lws_callback_reasons reason, void *user,
+        void *in, size_t len) {
+    unsigned char headers[1024] = "", *ptr = headers, *end = ptr + sizeof(headers)-1;
+    switch (reason) {
+        case LWS_CALLBACK_ESTABLISHED:
+            fprintf(stderr, "Websocket 1 connection established!\n");
             connected = 1;
             _wsi = wsi;
-			break;
-		case LWS_CALLBACK_CLOSED:
-            printf("Websocket 1 connection closed!\n");
+            break;
+        case LWS_CALLBACK_CLOSED:
+            fprintf(stderr, "Websocket 1 connection closed!\n");
             exit(EXIT_SUCCESS);
-			break;
-		case LWS_CALLBACK_HTTP:
-			lws_serve_http_file(wsi, "static.html", "text/html", NULL, 0);
-			break;
+            break;
+        case LWS_CALLBACK_HTTP:
+            lws_add_http_header_status(wsi, 200, &ptr, end);
+            lws_add_http_header_by_name(wsi, "Content-type", "text/html", 9, &ptr, end);
+            lws_add_http_header_content_length(wsi, sizeof(static_html), &ptr, end);
+            lws_finalize_http_header(wsi, &ptr, end);
+            lws_write(wsi, headers, ptr-headers, LWS_WRITE_HTTP);
+            lws_write(wsi, static_html, sizeof(static_html), LWS_WRITE_HTTP);
+            lws_http_transaction_completed(wsi);
+//            lws_serve_http_file(wsi, "static.html", "text/html", NULL, 0);
+            break;
         case LWS_CALLBACK_RECEIVE:
             for (int i = 0; i < sizeof(lines)/sizeof(*lines); i++) {
                 if (!lines[i]) {
-                    lines[i] = strdup(in);
+                    lines[i] = malloc(len+1);
+                    memcpy(lines[i], in, len);
+                    lines[i][len] = '\0';
                     break;
                 }
             }
-            printf("Received: '%s'\n", in);
             break;
         case LWS_CALLBACK_SERVER_WRITEABLE:
-            lws_write(_wsi, obuf, strlen(obuf), LWS_WRITE_TEXT);
-            obuf = NULL;
+            if (obuf != NULL) {
+                lws_write(_wsi, obuf, strlen(obuf), LWS_WRITE_TEXT);
+                obuf = NULL;
+            }
             break;
-	}
+    }
 
     return 0;
 }
@@ -389,33 +405,56 @@ static char * readSocket (void) {
 
 
 static struct lws_protocols protocols[] = {
-	{ "http-only", callback_http, 0, 0 },
-	{ NULL, NULL, 0, 0 }
+    { "http-only", callback_http, 0, 1048576 },
+    { NULL, NULL, 0, 0 }
 };
 
+static char *getHost (void) {
+    static char ret[1024];
+    struct sockaddr_in sin, local;
+
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    sin.sin_family = AF_INET;
+    sin.sin_port = 1234;
+    sin.sin_addr.s_addr = inet_addr("1.2.3.4");
+    int st = connect(fd, (struct sockaddr *)&sin, sizeof(struct sockaddr_in));
+    if (st < 0) {
+        return "<unknown>";
+    }
+    socklen_t locallen = sizeof(local);
+    st = getsockname(fd, (struct sockaddr *)&local, &locallen);
+    inet_ntop(local.sin_family, &local.sin_addr, ret, sizeof(ret));
+
+    return ret;
+}
+
+
+    
+
 static void initPipe (void) {
-	struct lws_context_creation_info info;
+    struct lws_context_creation_info info;
 
-	memset(&info, 0, sizeof info);
+    memset(&info, 0, sizeof info);
 
-	info.port = 8000;
-	info.protocols = protocols;
-	info.gid = -1;
-	info.uid = -1;
-	context = lws_create_context(&info);
+    info.port = 8000;
+    info.protocols = protocols;
+    info.gid = -1;
+    info.uid = -1;
+    context = lws_create_context(&info);
 
-	if (context == NULL) {
-		fprintf(stderr, "libwebsocket init failed\n");
+    if (context == NULL) {
+        fprintf(stderr, "libwebsocket init failed\n");
         exit(EXIT_FAILURE);
-	}
+    }
 
-	printf("Please connect to http://gc.n0q.de:8000/\n");
+    char *host = getHost();
+    fprintf(stderr, "Please connect to http://%s:%d/\n", host, info.port);
 
-	// infinite loop, the only option to end this serer is
-	// by sending SIGTERM. (CTRL+C)
-	while (!connected) {
-		lws_service(context, 50);
-	}
+    // infinite loop, the only option to end this serer is
+    // by sending SIGTERM. (CTRL+C)
+    while (!connected) {
+        lws_service(context, 50);
+    }
 }
 
 static void putPipe(string format, ...) {
@@ -443,7 +482,7 @@ static void putPipe(string format, ...) {
    obuf = cmd;
    lws_callback_on_writable(_wsi);
    while (obuf) {
-		lws_service(context, 0);
+        lws_service(context, 0);
    }
 }
 
@@ -478,7 +517,7 @@ static string getResult() {
 
 #else
 
-	/* Linux/Mac implementation of interface to Java back end */
+    /* Linux/Mac implementation of interface to Java back end */
 
 extern string *getMainArgArray(void);
 

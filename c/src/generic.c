@@ -395,7 +395,7 @@ void remove(void *arg, ...) {
       va_start(args, arg);
       gobj = va_arg(args, GObject);
       va_end(args);
-      removeGWindow((GWindow) arg, key);
+      removeGWindow((GWindow) arg, gobj);
    } else {
       error("remove: Unrecognized type %s", type);
    }

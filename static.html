@@ -151,7 +151,6 @@ GObject = {
     return obj;
   },
   remove: function (id) {
-    console.log("Removing "+id);
     console.log(objects);
     if (!objects[id]) return;
     console.log(objects[id]);
@@ -160,7 +159,6 @@ GObject = {
     for (i = 0; i < parents.length; i++) {
       var obj = objects[parents[i]];
       if (obj) {
-          console.log("Redrawing "+id);
           obj.redraw();
       }
     }

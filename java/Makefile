@@ -3,7 +3,7 @@
 #****************************************************************
 
 JAR = spl.jar
-CP = acm.jar:.
+CP = lib/acm.jar:prepacked_spl_libs.jar:.
 
 CLASSES = \
     stanford/spl/JavaBackEnd.class
@@ -17,7 +17,7 @@ PSFI = public static final int
 all: $(JAR)
 
 spl.jar: stanford/spl/JavaBackEnd.class
-	@cp acm.jar spl.jar
+	@cp lib/acm.jar spl.jar
 	@(cd classes; jar ufm ../spl.jar ../JBEManifest.txt \
                       `find stanford -name '*.class'`)
 	@echo jar cf spl.jar . . .
